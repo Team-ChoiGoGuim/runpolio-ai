@@ -1,0 +1,55 @@
+# AI-CRS 코스 생성 설정
+# 비기능 요구사항 '재현성': 판정 기준은 코드가 아닌 설정으로 관리한다.
+
+durunubi:
+  search_radius_m: 3000
+  require_theme_match: true
+
+generation:
+  total_courses: 3        # 최종 제시할 코스 총 수 (두루누비 포함/미포함 무관)
+  waypoints_per_course: 4
+
+  # ── TMAP 호출 예산 ───────────────────────────────────────────────
+  # 1차 10회 + 보정 5후보 × 3회 = 25회가 이론상 최대치이며,
+  # tmap_call_budget 이 이를 다시 한번 강제한다.
+  tmap_call_budget: 25          # 요청당 TMAP 호출 상한 (하드 리밋)
+  n_candidates: 10              # 1차 생성 후보 수 (각 1회 호출)
+  refine_top_k: 5               # 추가 반경 보정 대상 (목표 거리에 가까운 순)
+  max_refine_per_candidate: 3   # 후보별 보정 횟수 상한
+  max_concurrency: 5            # TMAP 동시 요청 상한
+
+  # ── 수용 밴드 ────────────────────────────────────────────────────
+  # ±200m 안에서 서로 다른 경로를 target_accepted 개 확보하면 즉시 생성을 멈춘다.
+  # 부족하면 ±300m → ±400m 로 넓히되, 이 단계는 이미 만든 후보 중에서만 고른다
+  # (추가 TMAP 호출 없음).
+  accept_bands_m: [200, 300, 400]
+  target_accepted: 3
+
+# 동일한 중심 위치·거리·순환 조건의 후보 재사용
+candidate_cache:
+  ttl_sec: 300
+  max_entries: 128
+
+# 목표 시간의 현실성 판정 범위. 벗어나면 요청을 거절하지 않고 경고만 덧붙인다.
+# (경로 생성 목표는 항상 distance_km 다)
+pace_sanity:
+  min_min_per_km: 3.0
+  max_min_per_km: 15.0
+
+# 목표 운동 강도 판정 (코스 난이도가 아니라 사용자가 설정한 목표의 강도다)
+#   상: 5분 30초/km 이하
+#   중: 5분 30초 초과 ~ 7분/km 이하
+#   하: 7분/km 초과
+target_intensity:
+  high_max_pace_sec_per_km: 330
+  medium_max_pace_sec_per_km: 420
+
+# 시간 오차 안내 기준(분). 후보 생성 조건이 아니라 표시·경고 기준이다.
+# 이 값을 넘어도 코스를 제거하지 않고 warnings 에만 안내를 추가한다.
+time_error_warn_min: 5.0
+
+tmap:
+  base_url: "https://apis.openapi.sk.com/tmap/routes/pedestrian"
+  version: 1
+  coord_type: "WGS84GEO"
+  timeout_sec: 3.0

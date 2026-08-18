@@ -1,0 +1,668 @@
+openapi: 3.0.3
+
+info:
+  title: Runpolio AI — 두루누비 원천 데이터 조회 API (내부 운영용)
+  version: 1.0.0
+  description: |
+    > **이 명세는 내부 운영·디버깅용이다. 백엔드 연동에는 필요하지 않다.**
+    > 백엔드가 사용할 추천 API는 `openapi-runpolio-ai.yaml`
+    > (`POST /api/v1/courses/recommend`) 이고, 연동 가이드는
+    > `docs/BACKEND_AI_HANDOFF.md` 다.
+
+    수집 배치(`scripts/collect_durunubi.py`)가 만든 로컬 인덱스를 직접 조회한다.
+    수집 결과 점검, 매칭 디버깅, 데이터 신선도 확인에 쓴다.
+    인덱스(메타+bbox)만 메모리에 상주하고, 좌표 경로는 요청된 코스만 읽는다.
+
+    ## ⚠️ 데이터 제약
+
+    공공데이터포털 두루누비 서비스 설명은 **284개 코스**를 명시하지만,
+    공개 API가 실제로 반환하는 것은 **144개**뿐이다(약 51%).
+    본 API가 제공하는 데이터도 이 144개가 전부다.
+
+    - 원본 사이트(durunubi.kr)에는 297개 코스가 GPX와 함께 존재하나 공개 API에는 없다
+    - 코리아둘레길은 해안선·DMZ 노선이라 **서울 1건 / 인천 2건** 으로 수도권 커버리지가 없다
+      → 수도권 요청은 매칭 0건이 정상이며, 호출부는 TMAP 폴백을 준비해야 한다
+    - 문서화되지 않은 두루누비 내부 API는 사용하지 않는다
+
+    자세한 내용은 `docs/DATA_SOURCES.md`, 백엔드 연동은 `BACKEND_HANDOFF.md` 참고.
+
+    ## 좌표 규약
+
+    모든 좌표는 **WGS84 `[위도, 경도]` 순서**다.
+    GeoJSON(`[경도, 위도]`)과 순서가 반대이므로 변환 시 주의할 것.
+
+  contact:
+    name: Runpolio AI 팀
+  license:
+    name: 데이터 출처 — 한국관광공사 두루누비 (공공누리/KOGL)
+    url: https://www.data.go.kr/data/15101974/openapi.do
+
+servers:
+  - url: http://localhost:8000
+    description: 로컬 개발 서버
+
+tags:
+  - name: courses
+    description: 두루누비 코스 조회
+  - name: system
+    description: 상태 점검
+
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: 데이터 로드 상태 및 수집 코스 수 확인
+      description: |
+        인덱스 로드 여부와 수집 데이터의 메타 정보를 반환한다.
+        인덱스가 없으면 `status: "degraded"`, `course_count: 0` 이 되며,
+        이 경우 두루누비 매칭은 항상 0건이 된다(수집 배치 실행 필요).
+      operationId: getHealth
+      responses:
+        '200':
+          description: 상태 정상 또는 데이터 미로드
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  summary: 데이터 로드 완료
+                  value:
+                    status: ok
+                    index_loaded: true
+                    data_source: data.go.kr/B551011/Durunubi
+                    last_updated: '2026-08-18T15:14:30+09:00'
+                    course_count: 144
+                    source_total_count: 144
+                    schema_version: 1
+                    path_files: 144
+                degraded:
+                  summary: 인덱스 없음 — 수집 배치 미실행
+                  value:
+                    status: degraded
+                    index_loaded: false
+                    data_source: null
+                    last_updated: null
+                    course_count: 0
+                    source_total_count: 0
+                    schema_version: null
+                    path_files: 0
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /courses/nearby:
+    get:
+      tags: [courses]
+      summary: 사용자 주변 두루누비 코스 후보 조회
+      description: |
+        주어진 좌표 반경 내에서 경로가 지나가는 코스를 가까운 순으로 반환한다.
+
+        조회 순서는 `테마 필터 → bbox 프리필터 → 후보만 좌표 로드 → 정밀 거리` 이며,
+        `distance_from_center_m` 는 코스 경로상 가장 가까운 점까지의 실제 거리다.
+
+        **수도권 등 코리아둘레길이 지나지 않는 지역은 정상적으로 빈 배열을 반환한다.**
+        이는 오류가 아니므로 호출부에서 TMAP 폴백으로 처리할 것.
+      operationId: findNearbyCourses
+      parameters:
+        - $ref: '#/components/parameters/Lat'
+        - $ref: '#/components/parameters/Lng'
+        - name: radius_m
+          in: query
+          description: 검색 반경(m)
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: 1
+            maximum: 50000
+            default: 3000
+          example: 3000
+        - name: theme
+          in: query
+          description: |
+            테마 필터. 지정하면 해당 테마가 태깅된 코스만 반환한다.
+            테마는 두루누비가 제공하지 않아 코스 설명 텍스트에서 추정한 값이라
+            정밀도에 한계가 있다(144건 중 132건 태깅됨).
+          required: false
+          schema:
+            $ref: '#/components/schemas/Theme'
+          example: 해변
+        - name: limit
+          in: query
+          description: 최대 반환 개수
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+          example: 10
+      responses:
+        '200':
+          description: 조회 성공 (매칭 0건도 200으로 반환)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NearbyResponse'
+              examples:
+                hit:
+                  summary: 부산 해운대 — 2건 매칭
+                  value:
+                    query:
+                      lat: 35.1587
+                      lng: 129.1604
+                      radius_m: 3000
+                      theme: 해변
+                    count: 2
+                    courses:
+                      - course_id: T_CRS_MNG0000004378
+                        name: 해파랑길 2코스
+                        route_id: T_THEME_MNG0000011235
+                        distance_from_center_m: 33.2
+                        distance_km: 13.992
+                        crs_level: 1
+                        elevation_gain_m: 189.8
+                        theme: [해변]
+                        sigun: 부산 해운대구
+                        cycle: 비순환형
+                        bbox: [35.155154, 129.160273, 35.223394, 129.229938]
+                      - course_id: T_CRS_MNG0000004239
+                        name: 해파랑길 1코스
+                        route_id: T_THEME_MNG0000011235
+                        distance_from_center_m: 1204.7
+                        distance_km: 16.83
+                        crs_level: 2
+                        elevation_gain_m: 241.5
+                        theme: [해변, 도심]
+                        sigun: 부산 남구
+                        cycle: 비순환형
+                        bbox: [35.09657, 129.035967, 35.159975, 129.161]
+                    data_status:
+                      data_source: data.go.kr/B551011/Durunubi
+                      last_updated: '2026-08-18T15:14:30+09:00'
+                      course_count: 144
+                empty:
+                  summary: 서울 시청 — 매칭 없음 (수도권 커버리지 없음)
+                  value:
+                    query:
+                      lat: 37.5663
+                      lng: 126.9779
+                      radius_m: 3000
+                      theme: null
+                    count: 0
+                    courses: []
+                    data_status:
+                      data_source: data.go.kr/B551011/Durunubi
+                      last_updated: '2026-08-18T15:14:30+09:00'
+                      course_count: 144
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /courses/{course_id}:
+    get:
+      tags: [courses]
+      summary: 코스 메타데이터·난이도·거리·예상 시간·설명 조회
+      description: |
+        좌표 경로를 제외한 코스 상세 정보를 반환한다. 경로는 `/courses/{course_id}/path` 로 별도 조회.
+
+        `duration_min_source` 는 두루누비가 제공한 **도보 기준** 소요시간이다.
+        러닝 기준 예상 시간을 산출하지는 않는다(추천 API는 사용자 목표 시간을 그대로 쓴다).
+      operationId: getCourse
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseDetail'
+              example:
+                course_id: T_CRS_MNG0000004378
+                name: 해파랑길 2코스
+                route_id: T_THEME_MNG0000011235
+                sigun: 부산 해운대구
+                theme: [해변]
+                crs_level: 1
+                distance_km: 13.992
+                distance_km_source: 14.0
+                duration_min_source: 300
+                elevation_gain_m: 189.8
+                cycle: 비순환형
+                brd_div: DNWW
+                bbox: [35.155154, 129.160273, 35.223394, 129.229938]
+                n_points: 172
+                n_points_raw: 795
+                summary: '- 해운대의 삼포라 불리는 미포, 청사포, 구덕포를 거쳐 송정해변을 지나 대변항에 이르는 코스'
+                contents: 해운대의 삼포라 불리는 미포, 청사포, 구덕포를 거쳐 송정해변과 해동용궁사를 지나 대변항에 이르는 코스
+                tour_info: '- 해운대와 광안리에 비해 북적이지 않고 깨끗한 분위기의 송정해변'
+                traveler_info: '- 부산역에서 급행버스 1003번 이용, 해운대해수욕장 하차 후 도보이동(약 160m)'
+                gpx_url: https://www.durunubi.kr/editImgUp.do?filePath=/data/koreamobility/course/summap/T_CRS_MNG0000004378.gpx
+                created_at: '20170120042000'
+                modified_at: '20260324081629'
+                data_status:
+                  data_source: data.go.kr/B551011/Durunubi
+                  last_updated: '2026-08-18T15:14:30+09:00'
+                  course_count: 144
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /courses/{course_id}/path:
+    get:
+      tags: [courses]
+      summary: 코스 GPS 경로 좌표 조회
+      description: |
+        코스의 좌표 경로를 반환한다. 좌표는 **`[위도, 경도]` 순서**다.
+
+        저장된 경로는 원본 GPX를 Douglas-Peucker(기본 ε=5m)로 단순화한 것이다.
+        거리 오차는 평균 0.7% / 최대 1.2% 수준이며, `simplification` 필드에 파라미터가 담긴다.
+
+        `elevation` 은 좌표와 같은 인덱스로 대응되는 고도(m) 배열이다.
+        일부 코스는 고도 정보가 없어 빈 배열이 반환될 수 있다.
+      operationId: getCoursePath
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+        - name: include_elevation
+          in: query
+          description: 고도 배열 포함 여부
+          required: false
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoursePath'
+              example:
+                course_id: T_CRS_MNG0000004378
+                name: 해파랑길 2코스
+                coord_type: WGS84
+                coord_order: '[lat, lng]'
+                point_count: 172
+                distance_km: 13.992
+                bbox: [35.155154, 129.160273, 35.223394, 129.229938]
+                path:
+                  - [35.158975, 129.160273]
+                  - [35.159314, 129.16214]
+                  - [35.159267, 129.162362]
+                elevation: [13.7, 15.5, 11.3]
+                simplification:
+                  algorithm: douglas-peucker
+                  epsilon_m: 5.0
+                  n_points_raw: 795
+                  n_points: 172
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  parameters:
+    Lat:
+      name: lat
+      in: query
+      description: 기준점 위도 (WGS84)
+      required: true
+      schema:
+        type: number
+        format: double
+        minimum: -90
+        maximum: 90
+      example: 35.1587
+    Lng:
+      name: lng
+      in: query
+      description: 기준점 경도 (WGS84)
+      required: true
+      schema:
+        type: number
+        format: double
+        minimum: -180
+        maximum: 180
+      example: 129.1604
+    CourseId:
+      name: course_id
+      in: path
+      description: 두루누비 코스 고유번호 (`crsIdx`)
+      required: true
+      schema:
+        type: string
+        pattern: '^T_CRS_MNG[0-9]+$'
+      example: T_CRS_MNG0000004378
+
+  responses:
+    BadRequest:
+      description: 잘못된 요청 파라미터
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            missing:
+              summary: 필수 파라미터 누락
+              value:
+                error: BAD_REQUEST
+                message: 'lat, lng 는 필수 파라미터입니다.'
+                detail: {missing: [lng]}
+            out_of_range:
+              summary: 값 범위 초과
+              value:
+                error: BAD_REQUEST
+                message: 'radius_m 은 1 이상 50000 이하여야 합니다.'
+                detail: {field: radius_m, value: 999999}
+    NotFound:
+      description: 해당 코스를 찾을 수 없음
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            unknown_course:
+              summary: 인덱스에 없는 코스
+              value:
+                error: COURSE_NOT_FOUND
+                message: '코스를 찾을 수 없습니다: T_CRS_MNG0000009999'
+                detail:
+                  course_id: T_CRS_MNG0000009999
+                  hint: 공개 API로 수집된 144개 코스만 조회할 수 있습니다.
+            path_missing:
+              summary: 메타는 있으나 좌표 파일이 없음
+              value:
+                error: PATH_NOT_FOUND
+                message: '코스 경로 파일이 없습니다: T_CRS_MNG0000004378'
+                detail:
+                  course_id: T_CRS_MNG0000004378
+                  hint: scripts/collect_durunubi.py 를 다시 실행하세요.
+    InternalError:
+      description: 서버 내부 오류
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            index_corrupt:
+              summary: 인덱스 파싱 실패
+              value:
+                error: INTERNAL_ERROR
+                message: 코스 인덱스를 읽을 수 없습니다.
+                detail: {reason: 'index.json 파싱 실패'}
+
+  schemas:
+
+    Theme:
+      type: string
+      description: 코스 테마 (설명 텍스트 기반 추정값)
+      enum: [해변, 강변, 공원, 호수, 도심]
+
+    BBox:
+      type: array
+      description: '경계 상자 `[min_lat, min_lng, max_lat, max_lng]`'
+      items:
+        type: number
+        format: double
+      minItems: 4
+      maxItems: 4
+      example: [35.155154, 129.160273, 35.223394, 129.229938]
+
+    Coordinate:
+      type: array
+      description: 'WGS84 좌표 `[위도, 경도]`'
+      items:
+        type: number
+        format: double
+      minItems: 2
+      maxItems: 2
+      example: [35.158975, 129.160273]
+
+    DataStatus:
+      type: object
+      description: 수집 데이터의 출처와 신선도
+      required: [data_source, last_updated, course_count]
+      properties:
+        data_source:
+          type: string
+          nullable: true
+          description: 수집 소스 식별자
+          example: data.go.kr/B551011/Durunubi
+        last_updated:
+          type: string
+          nullable: true
+          description: 수집 배치 실행 시각 (인덱스의 `collected_at`)
+          example: '2026-08-18T15:14:30+09:00'
+        course_count:
+          type: integer
+          description: 인덱스에 담긴 코스 수
+          example: 144
+
+    HealthResponse:
+      type: object
+      required: [status, index_loaded, course_count]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+          description: '`degraded` 는 인덱스 미로드 상태 — 수집 배치 실행 필요'
+        index_loaded:
+          type: boolean
+        data_source:
+          type: string
+          nullable: true
+          example: data.go.kr/B551011/Durunubi
+        last_updated:
+          type: string
+          nullable: true
+          example: '2026-08-18T15:14:30+09:00'
+        course_count:
+          type: integer
+          example: 144
+        source_total_count:
+          type: integer
+          description: 수집 시점에 공개 API가 보고한 `totalCount`
+          example: 144
+        schema_version:
+          type: integer
+          nullable: true
+          example: 1
+        path_files:
+          type: integer
+          description: 실제 존재하는 좌표 파일 수 (`course_count` 와 다르면 수집 불완전)
+          example: 144
+
+    CourseSummary:
+      type: object
+      description: 주변 조회 결과 항목 (좌표 경로 미포함)
+      required: [course_id, name, distance_from_center_m, distance_km, crs_level]
+      properties:
+        course_id:
+          type: string
+          example: T_CRS_MNG0000004378
+        name:
+          type: string
+          example: 해파랑길 2코스
+        route_id:
+          type: string
+          description: 소속 노선 고유번호 (해파랑길/남파랑길/서해랑길/DMZ)
+          example: T_THEME_MNG0000011235
+        distance_from_center_m:
+          type: number
+          format: double
+          description: 기준점에서 코스 경로까지의 최단 거리(m)
+          example: 33.2
+        distance_km:
+          type: number
+          format: double
+          description: 코스 전체 길이 (GPX 실측)
+          example: 13.992
+        crs_level:
+          type: integer
+          enum: [1, 2, 3]
+          example: 1
+        elevation_gain_m:
+          type: number
+          format: double
+          example: 189.8
+        theme:
+          type: array
+          items:
+            $ref: '#/components/schemas/Theme'
+        sigun:
+          type: string
+          example: 부산 해운대구
+        cycle:
+          type: string
+          description: 순환형태
+          enum: [순환형, 비순환형]
+        bbox:
+          $ref: '#/components/schemas/BBox'
+
+    NearbyResponse:
+      type: object
+      required: [query, count, courses, data_status]
+      properties:
+        query:
+          type: object
+          description: 요청 조건 에코백
+          properties:
+            lat: {type: number, format: double, example: 35.1587}
+            lng: {type: number, format: double, example: 129.1604}
+            radius_m: {type: number, format: double, example: 3000}
+            theme:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/Theme'
+        count:
+          type: integer
+          example: 2
+        courses:
+          type: array
+          description: 기준점에서 가까운 순으로 정렬됨
+          items:
+            $ref: '#/components/schemas/CourseSummary'
+        data_status:
+          $ref: '#/components/schemas/DataStatus'
+
+    CourseDetail:
+      type: object
+      required: [course_id, name, distance_km, crs_level]
+      properties:
+        course_id: {type: string, example: T_CRS_MNG0000004378}
+        name: {type: string, example: 해파랑길 2코스}
+        route_id: {type: string, example: T_THEME_MNG0000011235}
+        sigun: {type: string, example: 부산 해운대구}
+        theme:
+          type: array
+          items:
+            $ref: '#/components/schemas/Theme'
+        crs_level: {type: integer, enum: [1, 2, 3], example: 1}
+        distance_km:
+          type: number
+          format: double
+          description: GPX 실측 거리
+          example: 13.992
+        distance_km_source:
+          type: number
+          format: double
+          description: |
+            두루누비가 제공한 거리(정수 km 반올림). 실측과 중앙값 2.2% 차이가 나며,
+            최대 24% 벌어지는 코스가 있다.
+          example: 14.0
+        duration_min_source:
+          type: integer
+          description: 두루누비 제공 도보 기준 소요시간(분). 러닝 기준이 아니다.
+          example: 300
+        elevation_gain_m:
+          type: number
+          format: double
+          description: GPX 고도 기반 누적 상승고도
+          example: 189.8
+        cycle: {type: string, enum: [순환형, 비순환형]}
+        brd_div:
+          type: string
+          description: '걷기/자전거 구분. 현재 데이터는 전부 `DNWW`(걷기길)'
+          example: DNWW
+        bbox:
+          $ref: '#/components/schemas/BBox'
+        n_points: {type: integer, description: 저장된 좌표 수, example: 172}
+        n_points_raw: {type: integer, description: 원본 GPX 좌표 수, example: 795}
+        summary: {type: string, description: 코스 개요}
+        contents: {type: string, description: 코스 설명}
+        tour_info: {type: string, description: 관광 포인트}
+        traveler_info: {type: string, description: 여행자 정보}
+        gpx_url:
+          type: string
+          format: uri
+          description: 원본 GPX 파일 주소 (두루누비 정적 서버)
+        created_at: {type: string, example: '20170120042000'}
+        modified_at: {type: string, example: '20260324081629'}
+        data_status:
+          $ref: '#/components/schemas/DataStatus'
+
+    CoursePath:
+      type: object
+      required: [course_id, coord_type, coord_order, point_count, path]
+      properties:
+        course_id: {type: string, example: T_CRS_MNG0000004378}
+        name: {type: string, example: 해파랑길 2코스}
+        coord_type: {type: string, enum: [WGS84], example: WGS84}
+        coord_order:
+          type: string
+          description: 좌표 순서 명시 (GeoJSON과 반대)
+          enum: ['[lat, lng]']
+        point_count: {type: integer, example: 172}
+        distance_km: {type: number, format: double, example: 13.992}
+        bbox:
+          $ref: '#/components/schemas/BBox'
+        path:
+          type: array
+          items:
+            $ref: '#/components/schemas/Coordinate'
+        elevation:
+          type: array
+          description: |
+            좌표와 같은 인덱스로 대응되는 고도(m).
+            `include_elevation=false` 이거나 고도 정보가 없으면 빈 배열.
+          items:
+            type: number
+            format: double
+        simplification:
+          type: object
+          description: 경로 단순화 파라미터
+          properties:
+            algorithm: {type: string, example: douglas-peucker}
+            epsilon_m: {type: number, format: double, example: 5.0}
+            n_points_raw: {type: integer, example: 795}
+            n_points: {type: integer, example: 172}
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: 기계 판독용 오류 코드
+          enum:
+            - BAD_REQUEST
+            - COURSE_NOT_FOUND
+            - PATH_NOT_FOUND
+            - INTERNAL_ERROR
+          example: COURSE_NOT_FOUND
+        message:
+          type: string
+          description: 사람이 읽는 오류 설명
+          example: '코스를 찾을 수 없습니다: T_CRS_MNG0000009999'
+        detail:
+          type: object
+          nullable: true
+          description: 부가 정보 (필드명, 입력값, 조치 힌트 등)
+          additionalProperties: true
