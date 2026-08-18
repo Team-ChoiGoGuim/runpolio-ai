@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+data/*.json
+# 수집 산출물 — scripts/collect_durunubi.py 로 약 36초면 재생성된다.
+# 팀 공유가 필요하면 이 줄을 지우고 커밋할 것 (약 1.3MB).
+data/durunubi/

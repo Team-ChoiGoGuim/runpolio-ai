@@ -1,0 +1,790 @@
+openapi: 3.0.0
+info:
+  version: 2.1.0
+  title: Runpolio AI API
+  description: |
+    사용자 중심 위치, 목표 거리, 목표 시간을 기반으로 러닝 코스를 최대 3개 추천하는 API다.
+    모든 경로 좌표는 WGS84 `[위도, 경도]` 순서로 반환한다.
+
+  license:
+    name: 데이터 출처 — 한국관광공사 두루누비 (공공누리/KOGL)
+    url: https://www.data.go.kr/data/15101974/openapi.do
+
+servers:
+  # Added by API Auto Mocking Plugin
+  - description: SwaggerHub API Auto Mocking
+    url: https://virtserver.swaggerhub.com/dmsdud00/runfolio-ai/2.1.0
+
+
+tags:
+  - name: recommendation
+    description: 러닝 코스 추천
+  - name: system
+    description: 상태 점검
+
+paths:
+  /api/v1/courses/recommend:
+    post:
+      tags: [recommendation]
+      summary: 러닝 코스 추천 (최대 3개)
+      description: |
+        중심 좌표·목표 거리·목표 시간을 받아 러닝 코스를 최대 3개 추천한다.
+
+        두루누비 코스가 반경 내에서 매칭되면 그중 가장 가까운 1개를 요청 거리에 맞게
+        잘라 넣고, 나머지는 TMAP으로 생성한 순환 코스로 채운다.
+
+        실측 응답 시간은 630~890ms 수준이다(NFR 5초).
+      operationId: recommendCourses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseRequest'
+            examples:
+              beach_5km:
+                summary: 해변 테마 5km / 32분 (두루누비 매칭 기대)
+                value:
+                  center: {lat: 35.1587, lng: 129.1604}
+                  distance_km: 5.0
+                  duration_min: 32.0
+                  theme: 해변
+                  loop: true
+              city_seoul:
+                summary: 수도권 도심 5km / 30분 (두루누비 미매칭 예상)
+                value:
+                  center: {lat: 37.5663, lng: 126.9779}
+                  distance_km: 5.0
+                  duration_min: 30.0
+                  theme: 도심
+                  loop: true
+              minimal:
+                summary: 최소 요청 (theme 생략)
+                value:
+                  center: {lat: 37.5283, lng: 126.9346}
+                  distance_km: 3.0
+                  duration_min: 20.0
+              unrealistic_pace:
+                summary: 비현실적 목표 시간 (5km를 10분) — 거절되지 않고 경고만 붙는다
+                value:
+                  center: {lat: 35.1587, lng: 129.1604}
+                  distance_km: 5.0
+                  duration_min: 10.0
+                  theme: 해변
+              one_way:
+                summary: 편도형 요청
+                value:
+                  center: {lat: 37.7952, lng: 128.9106}
+                  distance_km: 10.0
+                  duration_min: 65.0
+                  loop: false
+      responses:
+        '200':
+          description: |
+            추천 성공 또는 조건 미충족. **조건 미충족도 200으로 반환**되며,
+            이때 `courses` 가 비고 `fallback_reason` 이 채워진다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseResponse'
+              examples:
+                success_with_durunubi:
+                  summary: '성공 — 두루누비 1 + AI 2 (부산 해운대 5km/30분, 실제 응답)'
+                  value:
+                    goal_summary:
+                      target_distance_km: 5.0
+                      target_duration_min: 30.0
+                      target_pace_sec_per_km: 360
+                      target_pace_display: 6:00/km
+                      target_speed_kmh: 10.0
+                      target_intensity: 중
+                    courses:
+                      - course_id: crs_22b3affe
+                        source: DURUNUBI
+                        source_course_id: T_CRS_MNG0000004378
+                        theme: [해변]
+                        distance: 5.0
+                        target_duration_min: 30.0
+                        distance_error_m: 0
+                        distance_accuracy: EXACT
+                        estimated_duration_min: 30.0
+                        time_error_min: 0.0
+                        path_data:
+                          - [35.158975, 129.160273]
+                          - [35.159314, 129.16214]
+                        center_location: [35.1587, 129.1604]
+                      - course_id: crs_fbcf607c
+                        source: AI_GENERATED
+                        source_course_id: null
+                        theme: [해변]
+                        distance: 4.82
+                        target_duration_min: 30.0
+                        distance_error_m: 178
+                        distance_accuracy: EXACT
+                        estimated_duration_min: 28.93
+                        time_error_min: 1.07
+                        path_data:
+                          - [35.158678, 129.160408]
+                          - [35.158739, 129.160652]
+                        center_location: [35.1587, 129.1604]
+                      - course_id: crs_55eb272e
+                        source: AI_GENERATED
+                        source_course_id: null
+                        theme: [해변]
+                        distance: 4.99
+                        target_duration_min: 30.0
+                        distance_error_m: 14
+                        distance_accuracy: EXACT
+                        estimated_duration_min: 29.91
+                        time_error_min: 0.09
+                        path_data:
+                          - [35.158678, 129.160408]
+                          - [35.158739, 129.160652]
+                        center_location: [35.1587, 129.1604]
+                    warnings: []
+                    fallback_reason: null
+                high_intensity_goal:
+                  summary: '목표 강도 상 (5km/25분 → 5:00/km, 실제 응답)'
+                  value:
+                    goal_summary:
+                      target_distance_km: 5.0
+                      target_duration_min: 25.0
+                      target_pace_sec_per_km: 300
+                      target_pace_display: 5:00/km
+                      target_speed_kmh: 12.0
+                      target_intensity: 상
+                    courses:
+                      - course_id: crs_1a7c0d92
+                        source: DURUNUBI
+                        source_course_id: T_CRS_MNG0000004378
+                        theme: [해변]
+                        distance: 5.0
+                        target_duration_min: 25.0
+                        distance_error_m: 0
+                        distance_accuracy: EXACT
+                        estimated_duration_min: 25.0
+                        time_error_min: 0.0
+                        path_data:
+                          - [35.158975, 129.160273]
+                          - [35.159314, 129.16214]
+                        center_location: [35.1587, 129.1604]
+                    warnings: []
+                    fallback_reason: null
+                low_intensity_with_relaxed_distance:
+                  summary: '목표 강도 하 (5km/40분 → 8:00/km) + 완화 밴드 코스'
+                  description: |
+                    `distance_accuracy` 가 `RELAXED_400M` 이면 목표에서 301~400m 벗어난
+                    코스라는 뜻이다. ±200m 후보가 모자랄 때만 이렇게 넓힌다.
+                  value:
+                    goal_summary:
+                      target_distance_km: 5.0
+                      target_duration_min: 40.0
+                      target_pace_sec_per_km: 480
+                      target_pace_display: 8:00/km
+                      target_speed_kmh: 7.5
+                      target_intensity: 하
+                    courses:
+                      - course_id: crs_9b2e51d7
+                        source: AI_GENERATED
+                        source_course_id: null
+                        theme: [해변]
+                        distance: 5.35
+                        target_duration_min: 40.0
+                        distance_error_m: 350
+                        distance_accuracy: RELAXED_400M
+                        estimated_duration_min: 42.8
+                        time_error_min: 2.8
+                        path_data:
+                          - [35.158678, 129.160408]
+                          - [35.158739, 129.160652]
+                        center_location: [35.1587, 129.1604]
+                    warnings: []
+                    fallback_reason: null
+                no_durunubi_match:
+                  summary: '두루누비 미매칭 — AI 3개 (서울 시청, 실제 응답)'
+                  description: |
+                    수도권은 코리아둘레길이 지나지 않아 `DURUNUBI` 가 없다.
+                    정상 동작이며 `fallback_reason` 은 `null` 이다.
+                  value:
+                    goal_summary:
+                      target_distance_km: 5.0
+                      target_duration_min: 30.0
+                      target_pace_sec_per_km: 360
+                      target_pace_display: 6:00/km
+                      target_speed_kmh: 10.0
+                      target_intensity: 중
+                    courses:
+                      - course_id: crs_2f2582f0
+                        source: AI_GENERATED
+                        source_course_id: null
+                        theme: [도심]
+                        distance: 5.28
+                        target_duration_min: 30.0
+                        distance_error_m: 280
+                        distance_accuracy: RELAXED_300M
+                        estimated_duration_min: 31.68
+                        time_error_min: 1.68
+                        path_data:
+                          - [37.566157, 126.977902]
+                          - [37.566157, 126.97791]
+                        center_location: [37.5663, 126.9779]
+                      - course_id: crs_dbd3e694
+                        source: AI_GENERATED
+                        source_course_id: null
+                        theme: [도심]
+                        distance: 5.01
+                        target_duration_min: 30.0
+                        distance_error_m: 10
+                        distance_accuracy: EXACT
+                        estimated_duration_min: 30.06
+                        time_error_min: 0.06
+                        path_data:
+                          - [37.566157, 126.977902]
+                          - [37.566157, 126.97791]
+                        center_location: [37.5663, 126.9779]
+                      - course_id: crs_08209562
+                        source: AI_GENERATED
+                        source_course_id: null
+                        theme: [도심]
+                        distance: 4.89
+                        target_duration_min: 30.0
+                        distance_error_m: 110
+                        distance_accuracy: EXACT
+                        estimated_duration_min: 29.34
+                        time_error_min: 0.66
+                        path_data:
+                          - [37.566157, 126.977902]
+                          - [37.566155, 126.977593]
+                        center_location: [37.5663, 126.9779]
+                    warnings: []
+                    fallback_reason: null
+                unrealistic_duration_warning:
+                  summary: '비현실적 목표 시간 — 코스는 생성되고 경고가 붙는다 (실제 응답)'
+                  description: |
+                    5km / 10분 = 2.0분/km 는 일반적인 러닝 범위를 벗어나지만
+                    요청은 거절되지 않는다. 코스는 거리 기준으로 생성된다.
+                  value:
+                    goal_summary:
+                      target_distance_km: 5.0
+                      target_duration_min: 10.0
+                      target_pace_sec_per_km: 120
+                      target_pace_display: 2:00/km
+                      target_speed_kmh: 30.0
+                      target_intensity: 상
+                    courses:
+                      - course_id: crs_4d1f0a83
+                        source: DURUNUBI
+                        source_course_id: T_CRS_MNG0000004378
+                        theme: [해변]
+                        distance: 5.0
+                        target_duration_min: 10.0
+                        distance_error_m: 0
+                        distance_accuracy: EXACT
+                        estimated_duration_min: 10.0
+                        time_error_min: 0.0
+                        path_data:
+                          - [35.158975, 129.160273]
+                          - [35.159314, 129.16214]
+                        center_location: [35.1587, 129.1604]
+                    warnings:
+                      - 목표 시간은 참고값이며 현재 경로 생성은 거리 기준입니다. 입력하신 5km / 10분은 약 2.0분/km 페이스로, 일반적인 러닝 범위(3~15분/km)를 벗어납니다.
+                    fallback_reason: null
+                partial_durunubi_only:
+                  summary: '부분 성공 — 두루누비만 1개 (TMAP 전부 실패 시, 실제 응답)'
+                  description: |
+                    TMAP 호출이 전부 실패해도 두루누비 매칭이 있으면 그것만 반환한다.
+                    3개 미만이지만 `fallback_reason` 은 `null` 이다.
+                  value:
+                    goal_summary:
+                      target_distance_km: 5.0
+                      target_duration_min: 32.0
+                      target_pace_sec_per_km: 384
+                      target_pace_display: 6:24/km
+                      target_speed_kmh: 9.38
+                      target_intensity: 중
+                    courses:
+                      - course_id: crs_ea885708
+                        source: DURUNUBI
+                        source_course_id: T_CRS_MNG0000004378
+                        theme: [해변]
+                        distance: 5.0
+                        target_duration_min: 32.0
+                        distance_error_m: 0
+                        distance_accuracy: EXACT
+                        estimated_duration_min: 32.0
+                        time_error_min: 0.0
+                        path_data:
+                          - [35.158975, 129.160273]
+                          - [35.159314, 129.16214]
+                        center_location: [35.1587, 129.1604]
+                    warnings: []
+                    fallback_reason: null
+                failure_no_courses:
+                  summary: '실패 — 코스 0개 + 실패 사유 (실제 응답)'
+                  description: |
+                    두루누비 매칭이 없고 TMAP 후보 생성도 전부 실패한 경우.
+                    **HTTP 상태는 여전히 200이다.** 예외는 밖으로 나가지 않는다.
+                    (예: 해상 좌표 요청 시 TMAP이 204 No Content 를 반환)
+                  value:
+                    goal_summary:
+                      target_distance_km: 5.0
+                      target_duration_min: 30.0
+                      target_pace_sec_per_km: 360
+                      target_pace_display: 6:00/km
+                      target_speed_kmh: 10.0
+                      target_intensity: 중
+                    courses: []
+                    warnings: []
+                    fallback_reason: 조건에 맞는 경로를 찾지 못했습니다. 거리를 줄이거나 테마 조건을 완화해 다시 시도해 주세요.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/health:
+    get:
+      tags: [system]
+      summary: 데이터 로드 상태 확인
+      description: |
+        두루누비 인덱스 로드 여부와 수집 데이터 메타를 반환한다.
+        `index_loaded: false` 이면 두루누비 추천이 항상 빠지고 `AI_GENERATED` 만 나온다.
+      operationId: getHealth
+      responses:
+        '200':
+          description: 상태 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  summary: 정상
+                  value:
+                    status: ok
+                    index_loaded: true
+                    data_source: data.go.kr/B551011/Durunubi
+                    last_updated: '2026-08-18T15:14:30+09:00'
+                    course_count: 144
+                    tmap_key_configured: true
+                degraded:
+                  summary: 수집 데이터 없음
+                  value:
+                    status: degraded
+                    index_loaded: false
+                    data_source: null
+                    last_updated: null
+                    course_count: 0
+                    tmap_key_configured: true
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  responses:
+    BadRequest:
+      description: 요청 파라미터 오류
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            missing_duration:
+              summary: 필수 항목 누락 (duration_min 은 필수다)
+              value:
+                error: BAD_REQUEST
+                message: 'duration_min 은 필수 항목입니다.'
+                detail: {missing: [duration_min]}
+            missing_center:
+              summary: 중심 좌표 누락
+              value:
+                error: BAD_REQUEST
+                message: 'center 는 필수 항목입니다.'
+                detail: {missing: [center]}
+            bad_distance:
+              summary: 거리 범위 초과
+              value:
+                error: BAD_REQUEST
+                message: 'distance_km 은 0보다 크고 100 이하여야 합니다.'
+                detail: {field: distance_km, value: 0}
+            bad_theme:
+              summary: 허용되지 않은 테마
+              value:
+                error: BAD_REQUEST
+                message: '지원하지 않는 theme 입니다.'
+                detail:
+                  field: theme
+                  value: 산악
+                  allowed: [해변, 강변, 공원, 호수, 도심]
+            bad_coordinate:
+              summary: 좌표 범위 초과
+              value:
+                error: BAD_REQUEST
+                message: 'center.lat 은 -90 이상 90 이하여야 합니다.'
+                detail: {field: center.lat, value: 991.0}
+    InternalError:
+      description: |
+        서버 내부 오류.
+
+        **TMAP 호출 실패는 여기에 해당하지 않는다.** 타임아웃·HTTP 오류·네트워크 오류·
+        비-JSON 응답·JSON 파싱 실패는 모두 내부에서 흡수되어 `200` + `fallback_reason`
+        으로 응답한다. 실패 유형은 서버 로그에 구조화된 코드로 남는다
+        (`TMAP_TIMEOUT`, `TMAP_HTTP_ERROR`, `TMAP_NETWORK_ERROR`,
+        `TMAP_INVALID_CONTENT_TYPE`, `TMAP_INVALID_JSON`, `TMAP_EMPTY_ROUTE`,
+        `TMAP_UNEXPECTED`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            config_missing:
+              summary: 서버 설정 누락
+              value:
+                error: INTERNAL_ERROR
+                message: 서버 설정 오류입니다.
+                detail: {reason: 'TMAP_APP_KEY 환경변수 없음'}
+
+  schemas:
+    Theme:
+      type: string
+      description: |
+        코스 테마. 두루누비 코스에는 설명 텍스트에서 추정한 테마가 붙어 있고,
+        `AI_GENERATED` 코스에는 요청한 테마가 그대로 담긴다.
+      enum: [해변, 강변, 공원, 호수, 도심]
+      example: 해변
+
+    DistanceAccuracy:
+      type: string
+      description: |
+        생성된 거리가 목표에서 얼마나 벗어났는지.
+        `distance_error_m` 이 400m를 넘는 코스는 애초에 반환되지 않는다.
+
+        | 값 | 오차 |
+        |---|---|
+        | `EXACT` | ±200m 이내 |
+        | `RELAXED_300M` | ±201~300m |
+        | `RELAXED_400M` | ±301~400m |
+      enum: [EXACT, RELAXED_300M, RELAXED_400M]
+      example: EXACT
+
+    GoalSummary:
+      type: object
+      description: |
+        사용자가 입력한 거리·시간을 환산한 목표 요약.
+        전부 입력값에서 파생된 값이며 경로 생성 조건이 아니다.
+        **요청이 유효하면 코스 생성에 실패해도 항상 반환된다.**
+      required:
+        [target_distance_km, target_duration_min, target_pace_sec_per_km,
+         target_pace_display, target_speed_kmh, target_intensity]
+      properties:
+        target_distance_km:
+          type: number
+          format: double
+          description: 요청한 목표 거리(km)
+          example: 5.0
+        target_duration_min:
+          type: number
+          format: double
+          description: 요청한 목표 시간(분)
+          example: 30.0
+        target_pace_sec_per_km:
+          type: integer
+          description: '`duration_min × 60 / distance_km` (초/km, 반올림)'
+          example: 360
+        target_pace_display:
+          type: string
+          description: 목표 페이스를 `M:SS/km` 로 표시한 값
+          example: 6:00/km
+        target_speed_kmh:
+          type: number
+          format: double
+          description: '`distance_km / (duration_min / 60)`'
+          example: 10.0
+        target_intensity:
+          type: string
+          description: |
+            **목표 운동 강도.** ⚠️ **코스의 난이도가 아니다** — 사용자가 설정한
+            목표(거리·시간)가 얼마나 빡센지를 나타낸다.
+
+            `상` ≤330초/km · `중` 331~420초/km · `하` >420초/km
+            (기준은 `configs/course.yaml` 의 `target_intensity`)
+          enum: [상, 중, 하]
+          example: 중
+
+    CourseSource:
+      type: string
+      description: |
+        코스 출처.
+        - `DURUNUBI` — 두루누비 실제 코스에서 요청 거리만큼 잘라낸 구간
+        - `AI_GENERATED` — TMAP 보행자 경로로 생성한 순환 코스
+      enum: [DURUNUBI, AI_GENERATED]
+
+    Coordinate:
+      type: array
+      description: 'WGS84 좌표 `[위도, 경도]`'
+      items:
+        type: number
+        format: double
+      minItems: 2
+      maxItems: 2
+      example: [35.158975, 129.160273]
+
+    Center:
+      type: object
+      description: 검색 중심 좌표 (WGS84)
+      required: [lat, lng]
+      properties:
+        lat:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          example: 35.1587
+        lng:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          example: 129.1604
+
+    CourseRequest:
+      type: object
+      description: 내부 `CourseRequest` 데이터클래스와 1:1 대응한다.
+      required: [center, distance_km, duration_min]
+      properties:
+        center:
+          $ref: '#/components/schemas/Center'
+        distance_km:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 100
+          description: |
+            **필수.** 목표 거리(km). **경로 생성의 실제 목표는 이 값이다.**
+            목표 거리에서 ±200m 이내 후보를 우선 선택한다. 후보가 부족할 때만
+            이미 생성된 후보 중에서 ±300m, 이어서 ±400m까지 단계적으로 완화한다.
+            목표 거리에서 400m를 초과해 벗어난 코스는 반환하지 않는다.
+          example: 5.0
+        duration_min:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          description: |
+            **필수.** 사용자가 설정한 목표 시간(분).
+
+            **경로 생성 조건이 아니다** — 코스 선택·생성에는 `distance_km` 만 쓴다.
+            대신 아래 값들의 입력이 된다.
+
+            - `goal_summary` 전체 (목표 페이스·속도·운동 강도)
+            - 코스별 `target_duration_min` (입력값 그대로 반환)
+            - 코스별 `estimated_duration_min` = 실제 거리 × 목표 페이스
+            - 코스별 `time_error_min` = |예상 시간 − 목표 시간|
+
+            거리와 현실적으로 맞지 않아도 요청은 거절되지 않고 `warnings` 가 붙는다.
+          example: 32.0
+        theme:
+          description: |
+            생략 시 테마 조건 없이 조회한다. 지정하면 두루누비 코스는
+            해당 테마가 태깅된 것만 후보가 된다(`require_theme_match: true`).
+          allOf:
+            - $ref: '#/components/schemas/Theme'
+        loop:
+          type: boolean
+          default: true
+          description: |
+            순환 여부. `true` 면 두루누비 구간을 왕복(out-and-back)으로 구성하고,
+            `false` 면 편도로 잘라낸다.
+          example: true
+
+    Course:
+      type: object
+      description: 내부 `Course` 데이터클래스와 1:1 대응한다.
+      required:
+        [course_id, source, theme, distance, target_duration_min,
+         distance_error_m, distance_accuracy, estimated_duration_min,
+         time_error_min, path_data, center_location]
+      properties:
+        course_id:
+          type: string
+          description: |
+            ⚠️ **요청마다 새로 생성되는 임시 식별자** (`crs_` + 8자리 hex).
+
+            영구 저장 키나 재조회 키로 **사용할 수 없다.** 같은 조건으로 다시
+            요청하면 다른 값이 나오며, 이 ID로 코스를 되찾는 엔드포인트는 없다.
+            코스를 보관하려면 `path_data` 를 포함한 내용을 저장하고 백엔드가
+            자체 ID를 부여할 것. 원본 코스 식별이 목적이라면 `source_course_id` 를 쓴다.
+          example: crs_62376d6a
+        source:
+          $ref: '#/components/schemas/CourseSource'
+        source_course_id:
+          type: string
+          nullable: true
+          description: |
+            원천 데이터의 **영속 ID**. `DURUNUBI` 는 두루누비 `crsIdx`,
+            `AI_GENERATED` 는 항상 `null` 이다.
+
+            임시 `course_id` 와 혼동하지 말 것. 이 값은 안정적이며,
+            내부 운영 API `GET /courses/{course_id}` (`openapi.yaml`) 에 사용할 수 있다.
+          example: T_CRS_MNG0000004378
+        theme:
+          type: array
+          description: |
+            `DURUNUBI` 는 코스에 태깅된 테마 목록, `AI_GENERATED` 는 요청 테마
+            (요청에 테마가 없으면 빈 배열).
+          items:
+            $ref: '#/components/schemas/Theme'
+          example: [해변]
+        distance:
+          type: number
+          format: double
+          description: |
+            코스 실측 거리(km), **소수점 2자리 반올림**.
+
+            ⚠️ 이 값으로 `distance_error_m` 이나 `estimated_duration_min` 을
+            재계산하지 말 것. 오차 필드는 반올림 전 원본 정밀도로 계산되므로
+            최대 5m 어긋난다. 서버가 준 값을 그대로 쓸 것.
+          example: 5.0
+        target_duration_min:
+          type: number
+          format: double
+          description: |
+            **사용자가 입력한 목표 시간(분)을 그대로 되돌려준 값**이다.
+            시스템이 계산한 예상 소요 시간이 아니며, 실제 코스 길이와
+            정합하지 않을 수 있다.
+          example: 32.0
+        path_data:
+          type: array
+          description: |
+            코스 경로 좌표. **`[위도, 경도]` 순서**.
+            `DURUNUBI` 는 단순화된 GPX 기반이라 좌표 수가 적고(수십 개),
+            `AI_GENERATED` 는 TMAP 원본이라 수백 개다.
+          items:
+            $ref: '#/components/schemas/Coordinate'
+        center_location:
+          allOf:
+            - $ref: '#/components/schemas/Coordinate'
+          description: 요청한 중심 좌표를 그대로 되돌려준다.
+        distance_error_m:
+          type: integer
+          description: '`|실제 거리 − 목표 거리|` (m, 반올림)'
+          example: 180
+        distance_accuracy:
+          $ref: '#/components/schemas/DistanceAccuracy'
+        estimated_duration_min:
+          type: number
+          format: double
+          description: |
+            `실제 거리(km) × goal_summary.target_pace_sec_per_km / 60`
+
+            ⚠️ **실제 완주 시간 예측이 아니다.** 사용자가 설정한 목표 페이스로
+            이 코스 거리를 달렸을 때의 시간일 뿐이다. 경사도·신호등·개인 기록은
+            반영되지 않는다.
+          example: 31.08
+        time_error_min:
+          type: number
+          format: double
+          description: |
+            `|estimated_duration_min − target_duration_min|`
+
+            거리가 목표에서 벗어난 만큼 시간이 어긋난다는 뜻이다.
+            **후보 생성·필터 조건이 아니라 표시·경고 기준**이며, 5분을 넘으면
+            코스를 제거하는 대신 `warnings` 에 안내가 추가된다.
+          example: 1.08
+
+    CourseResponse:
+      type: object
+      description: 내부 `CourseResponse` 데이터클래스와 1:1 대응한다.
+      required: [courses, warnings, goal_summary]
+      properties:
+        goal_summary:
+          allOf:
+            - $ref: '#/components/schemas/GoalSummary'
+          nullable: true
+          description: |
+            사용자 목표 요약. `distance_km`·`duration_min` 이 모두 양수면 항상 채워지며,
+            **코스 생성에 실패해도(`courses: []`) 반환된다.**
+
+            둘 중 하나라도 0 이하이면 `null` 이 되지만, 그런 요청은 `400` 으로
+            거절되므로 정상 응답에서는 사실상 나타나지 않는다.
+        courses:
+          type: array
+          description: |
+            추천 코스 목록. **최대 3개**이며 그 이하일 수 있다.
+            두루누비 매칭이 있으면 첫 항목이 `DURUNUBI` 다.
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/Course'
+        warnings:
+          type: array
+          description: |
+            사용자에게 보여줄 안내 문구. 요청을 거절하지 않은 채 알려야 할 사항을 담는다.
+            **코스 생성 성공 여부와 무관하게 채워질 수 있으며, 여러 건이 함께 올 수 있다.**
+
+            현재 발생하는 경고는 두 종류다.
+
+            1. **목표 페이스 비현실** — `duration_min / distance_km` 이 일반적인 러닝
+               범위(기본 3~15분/km, `pace_sanity`) 밖일 때.
+               "목표 시간은 참고값이며 현재 경로 생성은 거리 기준입니다 …"
+            2. **시간 오차 초과** — `time_error_min` 이 5분(`time_error_warn_min`)을
+               넘는 코스가 있을 때. **해당 코스를 제거하지 않고 안내만 추가한다.**
+               "목표 시간과 5분 넘게 차이나는 코스가 N개 있습니다(최대 X분) …"
+
+            두 경고는 동시에 나올 수 있다. 판정 기준은 `configs/course.yaml` 에서 조정한다.
+          items:
+            type: string
+          example: []
+        fallback_reason:
+          type: string
+          nullable: true
+          description: |
+            **`courses` 가 빈 경우에만** 채워지는 사용자 안내 문구.
+            코스가 1개라도 있으면 항상 `null` 이다.
+            프론트의 "결과 없음" 판정은 `courses.length === 0` 으로 할 것.
+          example: null
+
+    HealthResponse:
+      type: object
+      required: [status, index_loaded, course_count]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+          description: '`degraded` 는 두루누비 인덱스 미로드 상태'
+        index_loaded:
+          type: boolean
+        data_source:
+          type: string
+          nullable: true
+          example: data.go.kr/B551011/Durunubi
+        last_updated:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            수집 배치 실행 시각. RFC 3339 형식이며 UTC 오프셋을 포함한다
+            (인덱스의 `collected_at`). 수집 데이터가 없으면 `null`.
+          example: '2026-08-18T15:14:30+09:00'
+        course_count:
+          type: integer
+          description: '수집된 두루누비 코스 수 (공개 API 제약으로 현재 144)'
+          example: 144
+        tmap_key_configured:
+          type: boolean
+          description: TMAP 인증키 설정 여부
+          example: true
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          enum: [BAD_REQUEST, INTERNAL_ERROR]
+          example: BAD_REQUEST
+        message:
+          type: string
+          example: 'duration_min 은 필수 항목입니다.'
+        detail:
+          type: object
+          nullable: true
+          additionalProperties: true
