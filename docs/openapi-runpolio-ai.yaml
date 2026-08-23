@@ -1,10 +1,13 @@
 openapi: 3.0.0
 info:
-  version: 2.1.0
+  version: 2.2.0
   title: Runpolio AI API
   description: |
     사용자 중심 위치, 목표 거리, 목표 시간을 기반으로 러닝 코스를 최대 3개 추천하는 API다.
     모든 경로 좌표는 WGS84 `[위도, 경도]` 순서로 반환한다.
+
+    v2.2.0: 요청에서 `loop`(순환 여부) 필드를 제거했다(Breaking). 이제 모든 코스는
+    항상 출발지로 되돌아오는 왕복 형태이며, 사용자 입력으로 편도 경로를 요청할 수 없다.
 
   license:
     name: 데이터 출처 — 한국관광공사 두루누비 (공공누리/KOGL)
@@ -49,7 +52,6 @@ paths:
                   distance_km: 5.0
                   duration_min: 32.0
                   theme: 해변
-                  loop: true
               city_seoul:
                 summary: 수도권 도심 5km / 30분 (두루누비 미매칭 예상)
                 value:
@@ -57,7 +59,6 @@ paths:
                   distance_km: 5.0
                   duration_min: 30.0
                   theme: 도심
-                  loop: true
               minimal:
                 summary: 최소 요청 (theme 생략)
                 value:
@@ -71,13 +72,6 @@ paths:
                   distance_km: 5.0
                   duration_min: 10.0
                   theme: 해변
-              one_way:
-                summary: 편도형 요청
-                value:
-                  center: {lat: 37.7952, lng: 128.9106}
-                  distance_km: 10.0
-                  duration_min: 65.0
-                  loop: false
       responses:
         '200':
           description: |
@@ -588,13 +582,6 @@ components:
             해당 테마가 태깅된 것만 후보가 된다(`require_theme_match: true`).
           allOf:
             - $ref: '#/components/schemas/Theme'
-        loop:
-          type: boolean
-          default: true
-          description: |
-            순환 여부. `true` 면 두루누비 구간을 왕복(out-and-back)으로 구성하고,
-            `false` 면 편도로 잘라낸다.
-          example: true
 
     Course:
       type: object

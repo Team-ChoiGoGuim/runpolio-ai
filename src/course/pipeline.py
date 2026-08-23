@@ -124,7 +124,7 @@ async def create_courses(
     )
     for src_course in nearby:
         path = [tuple(p) for p in src_course["path"]]
-        segment = durunubi.extract_segment(path, req.center, req.target_m, req.loop)
+        segment = durunubi.extract_segment(path, req.center, req.target_m)
         if segment is not None:
             durunubi_course = _make_course(
                 CourseSource.DURUNUBI, src_course.get("theme", []),
@@ -149,7 +149,6 @@ async def create_courses(
         max_concurrency=gen_cfg["max_concurrency"],
         accept_band_m=bands[0],
         target_accepted=gen_cfg["target_accepted"],
-        loop=req.loop,
         timeout_sec=cfg["tmap"]["timeout_sec"],
         cache_ttl_sec=cache_cfg.get("ttl_sec", 300.0),
         cache_max_entries=cache_cfg.get("max_entries", 128),

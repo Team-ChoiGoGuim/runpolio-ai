@@ -55,6 +55,25 @@ def load_index(data_dir: Path = _DATA_DIR, force: bool = False) -> list[dict]:
     return _index_cache
 
 
+def load_meta(data_dir: Path = _DATA_DIR) -> dict:
+    """인덱스 파일의 부가 정보(수집 출처·시각·코스 수)를 읽는다.
+
+    `load_index()` 는 조회 성능을 위해 `courses` 배열만 돌려주므로,
+    `/health` 같은 상태 조회용으로 나머지 메타데이터가 필요할 때 이걸 쓴다.
+    """
+    f = index_path(data_dir)
+    if not f.exists():
+        return {}
+    with open(f, encoding="utf-8") as fh:
+        payload = json.load(fh)
+    return {
+        "source": payload.get("source"),
+        "collected_at": payload.get("collected_at"),
+        "course_count": payload.get("course_count", 0),
+        "source_total_count": payload.get("source_total_count"),
+    }
+
+
 def clear_cache() -> None:
     global _index_cache, _index_cache_key
     _index_cache = None

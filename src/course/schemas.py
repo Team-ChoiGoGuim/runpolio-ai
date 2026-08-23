@@ -57,7 +57,6 @@ class CourseRequest:
     distance_km: float
     duration_min: float
     theme: Optional[Theme] = None
-    loop: bool = True
 
     @property
     def target_m(self) -> float:

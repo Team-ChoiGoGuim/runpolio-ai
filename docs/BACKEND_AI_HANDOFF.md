@@ -16,17 +16,51 @@ Swagger Editor([editor.swagger.io](https://editor.swagger.io))에 YAML을 붙여
 
 ## ⚠️ 먼저 알아야 할 것
 
-### 1. HTTP 서버는 아직 없다
+### 1. HTTP 서버 — `main.py` (FastAPI)
 
-`openapi-runpolio-ai.yaml` 은 **계약 명세이고, 이를 서빙하는 FastAPI 앱(`main.py`)은
-아직 만들지 않았다.** 현재 호출 가능한 것은 파이썬 함수뿐이다.
+`docs/openapi-runpolio-ai.yaml` 계약을 그대로 구현한 FastAPI 서버가 프로젝트 루트의
+`main.py` 다. 백엔드(Spring)가 서버 대 서버로 호출하는 **별도 서비스**로 떠 있어야
+하며, 이 파이썬 프로세스 안에 Spring 코드를 import하는 식으로는 합쳐지지 않는다.
 
-```python
-from src.course.pipeline import create_courses   # async
+```
+[Spring 백엔드 (Lightsail)]  --- HTTP ---►  [이 AI 서버 (별도 프로세스/포트)]
+                              ◄--- JSON ---
 ```
 
-명세는 이 함수의 입출력을 그대로 옮긴 것이라, `main.py` 를 붙이면 그대로 성립한다.
-서버 구현이 필요하면 알려줄 것.
+**실행**
+
+```bash
+pip install -r requirements.txt
+# .env 에 TMAP_APP_KEY, DATA_GO_KR_KEY 채운 뒤
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+구현된 엔드포인트는 명세와 1:1이다.
+
+- `POST /api/v1/courses/recommend`
+- `GET /api/v1/health`
+
+응답 검증(직접 실행해 확인한 실측): 두루누비 매칭 성공 케이스, 수도권 미매칭
+(`AI_GENERATED` 3개), `missing_duration`/`bad_distance`/`bad_coordinate`/`bad_theme`
+4종 모두 명세의 예시 문구·`detail` 구조와 **글자 단위로 일치**함을 확인했다.
+
+CORS 미들웨어는 넣지 않았다 — 서버 대 서버 호출이라 브라우저 CORS 정책이 개입할
+일이 없다. 프론트가 이 서버를 직접 호출하게 되면 그때 추가할 것.
+
+**Lightsail 배포 시 참고**
+
+- Spring과 같은 인스턴스에 둘 경우: 이 프로세스를 별도 포트(예: 8000)로 띄우고
+  Spring 설정에 `http://localhost:8000` 을 백엔드 URL로 등록. 이 경우 Lightsail
+  방화벽에서 8000번을 외부에 열 필요가 없다(같은 머신 내부 호출이므로).
+- 별도 인스턴스에 둘 경우: Lightsail 네트워킹 탭에서 해당 포트를 열고, 사설 IP
+  또는 VPC peering으로 묶어 인터넷에 노출하지 않는 편이 안전하다.
+- 프로세스가 죽어도 자동 재기동되도록 systemd 서비스나 `pm2`/`supervisor` 류로
+  감싸는 걸 권장한다(현재는 `uvicorn` 직접 실행 예시만 제공).
+
+⚠️ **임베딩 클라이언트는 여전히 목업이다** (`src/course/embedding.py` 의
+`MockEmbeddingClient`, 랜덤 벡터). 서버 자체는 정상 동작하지만 AI-CRS-004
+테마 매칭의 실제 의미 기반 선별은 아직 이루어지지 않는다. 실 서비스 전
+`EMBEDDING_API_KEY` 확정 후 교체가 필요하다.
 
 ### 2. 두루누비 데이터는 144개뿐이다
 
@@ -92,9 +126,9 @@ from src.course.pipeline import create_courses   # async
 
 ### 후보 캐시
 
-중심 위치·거리·순환 조건이 같으면 TTL 동안 후보를 재사용한다.
+중심 위치·거리가 같으면 TTL 동안 후보를 재사용한다.
 
-- 캐시 키: `(위도 5자리, 경도 5자리, 목표 거리 m, loop)`
+- 캐시 키: `(위도 5자리, 경도 5자리, 목표 거리 m)`
 - 기본 TTL 300초, 최대 128개 항목 (`candidate_cache`)
 - **캐시 적중 시 TMAP 호출 0회.** 실측 1,301ms → **10ms**
 
@@ -138,8 +172,7 @@ TMAP 후보 생성 결과 | {'tmap_calls': 16, 'budget': 25, 'initial_calls': 10
   "center": {"lat": 35.1587, "lng": 129.1604},
   "distance_km": 5.0,
   "duration_min": 32.0,
-  "theme": "해변",
-  "loop": true
+  "theme": "해변"
 }
 ```
 
@@ -149,9 +182,20 @@ TMAP 후보 생성 결과 | {'tmap_calls': 16, 'budget': 25, 'initial_calls': 10
 | `distance_km` | ✅ | — | **경로 생성의 실제 목표.** ±200m 우선, 부족하면 ±300m·±400m |
 | `duration_min` | ✅ | — | 사용자가 설정한 목표 시간(분). **생성 조건이 아님** |
 | `theme` | | 없음 | `해변`/`강변`/`공원`/`호수`/`도심` |
-| `loop` | | `true` | 순환 여부 |
+
+요청 입력은 이 5개(위도·경도·거리·시간·테마)가 전부다.
 
 **`difficulty` 는 제거됐다.** 요청에 넣어도 무시된다.
+
+**`loop` 도 제거됐다(v2.2.0, Breaking).** 예전에는 순환/편도를 선택할 수 있었지만,
+이제 모든 코스가 **항상 출발지로 되돌아오는 왕복(out-and-back) 형태**로 고정된다.
+요청 본문에 `loop` 필드를 실수로 넣어도 서버는 그냥 무시한다(거부하지 않음, 값도 안 씀).
+
+- `DURUNUBI` 코스: `durunubi.py` 의 `extract_segment()` 가 항상 왕복 구간만 잘라낸다.
+  편도 모드는 함수 자체에서 삭제됐다.
+- `AI_GENERATED` 코스: TMAP 호출 자체가 원래부터 `start=center, end=center` 로
+  항상 출발지로 복귀하는 순환 경로만 만들었다 — `loop` 필드는 애초에 이쪽 경로
+  생성에는 영향을 준 적이 없었다(캐시 키에만 쓰였다). 그래서 이 부분은 동작 변화가 없다.
 
 #### 거리와 목표 시간의 관계
 

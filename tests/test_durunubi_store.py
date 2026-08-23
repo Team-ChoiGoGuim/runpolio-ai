@@ -156,6 +156,6 @@ def test_extract_segment_works_on_indexed_course(store_dir):
     hits = durunubi.find_nearby_courses(
         center=(37.5000, 127.0), radius_m=2000, data_dir=store_dir,
     )
-    seg = durunubi.extract_segment(hits[0]["path"], (37.5000, 127.0), 2000, loop=False)
+    seg = durunubi.extract_segment(hits[0]["path"], (37.5000, 127.0), 2000)
     assert seg is not None
     assert abs(total_distance_m(seg) - 2000) < 200

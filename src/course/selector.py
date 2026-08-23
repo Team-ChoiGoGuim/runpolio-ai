@@ -22,7 +22,7 @@ def build_profile_sentence(req: CourseRequest) -> str:
     if req.theme:
         parts.append(f"{req.theme.value} 근처를 지나는")
     parts.append(f"{req.distance_km:.1f}km")
-    parts.append("순환형" if req.loop else "편도형")
+    parts.append("순환형")  # 모든 코스가 출발지로 되돌아오는 형태로 통일됨
     parts.append("러닝 코스")
     return " ".join(parts)
 

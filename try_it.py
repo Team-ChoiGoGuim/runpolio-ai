@@ -6,20 +6,13 @@
   3) 생성된 result_map.html을 브라우저에서 열기
 """
 import asyncio
-import json
-import random
 from dotenv import load_dotenv
 load_dotenv()
 
 from src.course.schemas import CourseRequest, Theme
 from src.course.pipeline import create_courses
 from src.course.visualizer import generate_map_html
-
-
-class MockEmbeddingClient:
-    """임베딩 모델 확정 전 임시 대용품 (랜덤 벡터)."""
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        return [[random.random() for _ in range(64)] for _ in texts]
+from src.course.embedding import MockEmbeddingClient
 
 
 async def main():
@@ -29,13 +22,11 @@ async def main():
         distance_km=5.0,
         duration_min=35.0,
         theme=Theme.RIVER,
-        loop=True,
     )
 
     print("=" * 50)
     print(f"📍 요청: {req.center}")
     print(f"   거리: {req.distance_km}km / 목표 시간: {req.duration_min:g}분 / 테마: {req.theme.value}")
-    print(f"   순환형: {req.loop}")
     print("=" * 50)
 
     result = await create_courses(req, MockEmbeddingClient())

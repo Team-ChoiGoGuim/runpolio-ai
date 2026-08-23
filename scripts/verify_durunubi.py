@@ -138,7 +138,7 @@ def main() -> int:
         print(f"    메타   : {top['distance_km_measured']}km / 난이도 {top['crs_level']} / "
               f"고도상승 {top['elevation_gain_m']}m / {top['sigun']}")
         print(f"    테마   : {top['theme']}")
-        seg = durunubi.extract_segment(top["path"], center, 5000, loop=True)
+        seg = durunubi.extract_segment(top["path"], center, 5000)
         if seg:
             print(f"    5km 왕복 구간 추출: {len(seg)}점, 실측 {total_distance_m(seg)/1000:.2f}km, "
                   f"시종점 간격 {haversine_m(seg[0], seg[-1]):.1f}m")
