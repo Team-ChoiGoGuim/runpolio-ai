@@ -163,31 +163,30 @@ def test_cache_hit_avoids_all_tmap_calls():
     rec = Recorder(in_band=True)
     first = asyncio.run(generator.generate_candidates(
         CENTER, TARGET_M, transport=httpx.MockTransport(rec),
-        n_candidates=4, loop=True, use_cache=True))
+        n_candidates=4, use_cache=True))
     calls_after_first = rec.calls
     assert first.stats.cache_hit is False
 
     second = asyncio.run(generator.generate_candidates(
         CENTER, TARGET_M, transport=httpx.MockTransport(rec),
-        n_candidates=4, loop=True, use_cache=True))
+        n_candidates=4, use_cache=True))
     assert second.stats.cache_hit is True
     assert second.stats.tmap_calls == 0
     assert rec.calls == calls_after_first, "캐시 적중 시 추가 호출이 없어야 한다"
     assert len(second.candidates) == len(first.candidates)
 
 
-def test_cache_key_separates_distance_and_loop():
+def test_cache_key_separates_by_distance():
     rec = Recorder(in_band=True)
 
-    def gen(target, loop):
+    def gen(target):
         return asyncio.run(generator.generate_candidates(
             CENTER, target, transport=httpx.MockTransport(rec),
-            n_candidates=2, loop=loop, use_cache=True))
+            n_candidates=2, use_cache=True))
 
-    gen(5000.0, True)
-    assert gen(5000.0, True).stats.cache_hit is True
-    assert gen(7000.0, True).stats.cache_hit is False, "거리가 다르면 별개 항목"
-    assert gen(5000.0, False).stats.cache_hit is False, "순환 조건이 다르면 별개 항목"
+    gen(5000.0)
+    assert gen(5000.0).stats.cache_hit is True
+    assert gen(7000.0).stats.cache_hit is False, "거리가 다르면 별개 항목"
 
 
 def test_cache_expires_after_ttl():

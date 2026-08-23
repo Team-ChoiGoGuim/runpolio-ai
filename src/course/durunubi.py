@@ -95,12 +95,18 @@ def find_nearby_courses(
 
 
 def extract_segment(
-    path: list[Point], center: Point, target_m: float, loop: bool,
+    path: list[Point], center: Point, target_m: float,
 ) -> Optional[list[Point]]:
+    """반경 안에서 target_m 길이의 왕복(out-and-back) 구간을 잘라낸다.
+
+    항상 시작점으로 되돌아오는 형태다. TMAP 기반 AI_GENERATED 코스도 항상
+    출발지로 복귀하는 순환 경로이므로, 출처(DURUNUBI/AI_GENERATED)와 무관하게
+    모든 코스가 시작점=종료점이 되도록 통일한다. 편도 모드는 없다.
+    """
     if len(path) < 2:
         return None
     start_idx = nearest_index(path, center)
-    one_way_m = target_m / 2 if loop else target_m
+    one_way_m = target_m / 2
 
     forward = _walk(path, start_idx, one_way_m, direction=+1)
     backward = _walk(path, start_idx, one_way_m, direction=-1)
@@ -108,9 +114,7 @@ def extract_segment(
     if segment is None:
         return None
 
-    if loop:
-        return segment + segment[-2::-1]
-    return segment
+    return segment + segment[-2::-1]
 
 
 def _walk(path, start_idx, distance_m, direction):

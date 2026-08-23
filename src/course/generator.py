@@ -334,8 +334,8 @@ async def _call_once(
 _cache: dict[tuple, tuple[float, list[RawCandidate]]] = {}
 
 
-def _cache_key(center: Point, target_m: float, loop: bool) -> tuple:
-    return (round(center[0], 5), round(center[1], 5), round(target_m), bool(loop))
+def _cache_key(center: Point, target_m: float) -> tuple:
+    return (round(center[0], 5), round(center[1], 5), round(target_m))
 
 
 def clear_candidate_cache() -> None:
@@ -383,17 +383,18 @@ def select_within_bands(
 async def generate_candidates(
     center, target_m, n_candidates=10, refine_top_k=5, max_refine_per_candidate=3,
     call_budget=25, max_concurrency=5, accept_band_m=200, target_accepted=3,
-    loop=True, timeout_sec=3.0, transport=None,
+    timeout_sec=3.0, transport=None,
     cache_ttl_sec=300.0, cache_max_entries=128, use_cache=True,
 ) -> CandidateBatch:
     """후보 경로를 예산 안에서 생성한다.
 
     1차 생성 → (부족하면) 목표 거리에 가까운 후보만 반경 보정.
     ±accept_band_m 안의 서로 다른 경로가 target_accepted 개 모이면 즉시 중단한다.
+    생성되는 경로는 항상 center 로 되돌아오는 순환형이다(왕복 웨이포인트 구조).
     """
     stats = GenerationStats(call_budget=call_budget)
 
-    key = _cache_key(center, target_m, loop)
+    key = _cache_key(center, target_m)
     if use_cache:
         cached = _cache_get(key, cache_ttl_sec)
         if cached is not None:

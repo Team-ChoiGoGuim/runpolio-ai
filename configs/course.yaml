@@ -25,7 +25,7 @@ generation:
   accept_bands_m: [200, 300, 400]
   target_accepted: 3
 
-# 동일한 중심 위치·거리·순환 조건의 후보 재사용
+# 동일한 중심 위치·거리 조건의 후보 재사용
 candidate_cache:
   ttl_sec: 300
   max_entries: 128

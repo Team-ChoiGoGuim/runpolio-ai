@@ -21,16 +21,10 @@ def test_destination_point_roundtrip():
     assert abs(haversine_m(origin, moved) - 800) < 1
 
 
-def test_extract_segment_one_way():
+def test_extract_segment_out_and_back():
+    """extract_segment 는 항상 왕복(out-and-back) 구간을 반환한다. 편도 모드는 없다."""
     path = _straight_path()
-    seg = extract_segment(path, center=path[0], target_m=3000, loop=False)
-    assert seg is not None
-    assert abs(total_distance_m(seg) - 3000) <= 100
-
-
-def test_extract_segment_loop_out_and_back():
-    path = _straight_path()
-    seg = extract_segment(path, center=path[0], target_m=4000, loop=True)
+    seg = extract_segment(path, center=path[0], target_m=4000)
     assert seg is not None
     assert abs(total_distance_m(seg) - 4000) <= 200
     assert haversine_m(seg[0], seg[-1]) < 1
@@ -38,12 +32,12 @@ def test_extract_segment_loop_out_and_back():
 
 def test_extract_segment_insufficient_length_returns_none():
     path = _straight_path(n=11)
-    assert extract_segment(path, center=path[0], target_m=5000, loop=False) is None
+    assert extract_segment(path, center=path[0], target_m=5000) is None
 
 
 def test_extract_segment_starts_near_user_point():
     path = _straight_path()
-    seg = extract_segment(path, center=path[50], target_m=2000, loop=False)
+    seg = extract_segment(path, center=path[50], target_m=2000)
     assert seg is not None
     assert haversine_m(seg[0], path[50]) < 50
 
