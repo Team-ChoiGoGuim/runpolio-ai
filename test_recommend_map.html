@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Runpolio AI — 추천 API 시각 검증 도구</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif; background: #f2f3f5; color: #1a1a2e; }
+
+  header { background: #1a1a2e; color: #fff; padding: 14px 20px; }
+  header h1 { font-size: 18px; }
+  header p { font-size: 12px; color: #b8bcd0; margin-top: 4px; }
+
+  #usage {
+    background: #fff9e6; border-bottom: 1px solid #f0e0a0; padding: 10px 20px;
+    font-size: 12.5px; line-height: 1.6; color: #5a4a00;
+  }
+  #usage b { color: #1a1a2e; }
+  #usage ol { margin: 4px 0 0 18px; }
+
+  .layout { display: flex; gap: 0; align-items: flex-start; }
+  #controls {
+    width: 320px; flex-shrink: 0; background: #fff; padding: 16px;
+    border-right: 1px solid #e0e0e6; max-height: calc(100vh - 110px); overflow-y: auto;
+  }
+  #right { flex: 1; min-width: 0; }
+  #map { width: 100%; height: 52vh; }
+
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 4px; }
+  .field input, .field select {
+    width: 100%; padding: 7px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px;
+  }
+  .field .hint { font-size: 11px; color: #888; margin-top: 3px; }
+
+  .preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .preset-btn {
+    padding: 8px 6px; border: 1px solid #ccc; border-radius: 6px; background: #fafafa;
+    font-size: 12.5px; cursor: pointer; text-align: center;
+  }
+  .preset-btn:hover { background: #eef1ff; border-color: #7788ee; }
+  .preset-btn.active { background: #4c5fd5; color: #fff; border-color: #4c5fd5; }
+
+  #callBtn {
+    width: 100%; padding: 11px; margin-top: 8px; border: none; border-radius: 8px;
+    background: #2e7d32; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  #callBtn:disabled { background: #9aa; cursor: not-allowed; }
+  #callBtn:hover:not(:disabled) { background: #256428; }
+
+  #status { margin-top: 10px; font-size: 12.5px; padding: 8px; border-radius: 6px; display: none; }
+  #status.info { display: block; background: #eef2ff; color: #33409a; }
+  #status.ok { display: block; background: #e8f7ee; color: #1e6b34; }
+  #status.err { display: block; background: #fdecea; color: #9c2b1f; white-space: pre-wrap; }
+
+  #summary { padding: 10px 20px; font-size: 13px; background: #fff; border-bottom: 1px solid #e0e0e6; }
+  #summary b { color: #1a1a2e; }
+
+  #cards {
+    display: flex; flex-wrap: wrap; gap: 12px; padding: 14px 20px; background: #f2f3f5;
+  }
+  .card {
+    width: 300px; background: #fff; border-radius: 10px; padding: 12px 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12); border-left: 6px solid #999; font-size: 12.5px; line-height: 1.7;
+  }
+  .card h3 { font-size: 14px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .card .badge { font-size: 10.5px; padding: 2px 6px; border-radius: 4px; color: #fff; }
+  .card .badge.DURUNUBI { background: #1e8449; }
+  .card .badge.AI_GENERATED { background: #2471a3; }
+  .card .row { display: flex; justify-content: space-between; }
+  .card .row span:first-child { color: #777; }
+  .card .warn { color: #c0392b; font-weight: 600; }
+  .card .ok-diff { color: #1e6b34; }
+  .card code { font-size: 11px; background: #f4f4f6; padding: 1px 4px; border-radius: 3px; }
+
+  #issues { padding: 10px 20px; }
+  .issue {
+    background: #fdecea; border: 1px solid #f5b7b1; color: #7b241c; padding: 8px 12px;
+    border-radius: 6px; font-size: 12.5px; margin-bottom: 8px; white-space: pre-wrap;
+  }
+  .issue.warn { background: #fff8e1; border-color: #f0d98a; color: #7a5c00; }
+
+  #debug { margin: 10px 20px 30px; }
+  #debug summary {
+    cursor: pointer; font-size: 13px; font-weight: 600; padding: 8px 12px;
+    background: #1a1a2e; color: #fff; border-radius: 6px;
+  }
+  #debugBody { background: #0f1020; color: #d8d8e6; padding: 12px; border-radius: 0 0 6px 6px; }
+  #debugBody .drow { margin-bottom: 8px; font-size: 12px; }
+  #debugBody .dlabel { color: #8ab4ff; }
+  #debugBody pre { white-space: pre-wrap; word-break: break-all; font-size: 11.5px; max-height: 400px; overflow-y: auto; }
+
+  .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Runpolio AI — 추천 API 시각 검증 도구</h1>
+  <p>배포 전 실제 /api/v1/courses/recommend 응답을 지도에서 눈으로 확인하는 QA 전용 페이지. 서버 코드를 수정하지 않는다.</p>
+</header>
+
+<div id="usage">
+  <b>사용법</b>
+  <ol>
+    <li>FastAPI 서버 실행: <code>uvicorn main:app --host 0.0.0.0 --port 8000</code> (프로젝트 루트, .env 필요)</li>
+    <li>이 파일을 브라우저로 직접 열거나(더블클릭) 로컬 정적 서버로 연다 — FastAPI가 서빙하지 않는 독립 파일이다</li>
+    <li>아래 "API 주소"에 로컬(<code>http://localhost:8000</code>) 또는 배포된 공개 URL 입력</li>
+    <li>부산 5개 지점 중 하나 선택 → 테마 선택 → "추천 API 호출" 클릭</li>
+    <li>지도의 경로 색과 카드의 좌측 색 막대가 1:1로 대응한다. ▲ = 시작점, ■ = 종료점</li>
+  </ol>
+</div>
+
+<div class="layout">
+  <div id="controls">
+    <div class="field">
+      <label>API 기본 주소 (base URL)</label>
+      <input id="baseUrl" type="text" value="http://localhost:8000" placeholder="예: http://localhost:8000 또는 https://your-deploy.example.com">
+      <div class="hint">엔드포인트는 자동으로 /api/v1/courses/recommend 를 붙인다</div>
+    </div>
+
+    <div class="field">
+      <label>부산 중심지 (5곳)</label>
+      <div class="preset-grid" id="presetGrid"></div>
+    </div>
+
+    <div class="field">
+      <label>중심 좌표 (lat, lng) — 프리셋 선택 시 자동 입력</label>
+      <input id="lat" type="text" readonly>
+      <input id="lng" type="text" readonly style="margin-top:6px;">
+    </div>
+
+    <div class="field">
+      <label>목표 거리 (distance_km)</label>
+      <input id="distanceKm" type="number" value="5" step="0.1" min="0.1" max="100">
+    </div>
+
+    <div class="field">
+      <label>목표 시간 (duration_min)</label>
+      <input id="durationMin" type="number" value="30" step="1" min="1">
+    </div>
+
+    <div class="field">
+      <label>테마 (theme)</label>
+      <select id="theme">
+        <option value="">(지정 안 함)</option>
+        <option value="해변">해변</option>
+        <option value="강변">강변</option>
+        <option value="공원">공원</option>
+        <option value="호수">호수</option>
+        <option value="도심">도심</option>
+      </select>
+      <div class="hint">API가 실제로 허용하는 값은 이 5종뿐이다 (schemas.py Theme enum)</div>
+    </div>
+
+    <button id="callBtn">추천 API 호출</button>
+    <div id="status"></div>
+  </div>
+
+  <div id="right">
+    <div id="map"></div>
+    <div id="summary">호출 전. 좌측에서 지점과 조건을 선택한 뒤 버튼을 누르세요.</div>
+    <div id="issues"></div>
+    <div id="cards"></div>
+
+    <details id="debug">
+      <summary>디버그: 요청 URL · HTTP 상태 · 원본 JSON (클릭해서 펼치기)</summary>
+      <div id="debugBody">
+        <div class="drow"><span class="dlabel">요청 URL:</span> <span id="dbgUrl">-</span></div>
+        <div class="drow"><span class="dlabel">요청 본문:</span> <pre id="dbgReqBody">-</pre></div>
+        <div class="drow"><span class="dlabel">HTTP 상태:</span> <span id="dbgStatus">-</span></div>
+        <div class="drow"><span class="dlabel">응답 헤더 일부:</span> <span id="dbgHeaders">-</span></div>
+        <div class="drow"><span class="dlabel">원본 응답 JSON:</span></div>
+        <pre id="dbgRaw">-</pre>
+      </div>
+    </details>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ── 부산 중심지 5곳 (실측 랜드마크 좌표, 근사값) ──────────────────────
+// path_data 좌표 순서는 main.py:181 "[[lat, lng] for lat, lng in c.path_data]" 로
+// 서버 코드에서 직접 확인했다(추측 아님) — 이 페이지 전체가 [lat, lng] 기준이다.
+const PRESETS = [
+  { name: "해운대",     lat: 35.1587, lng: 129.1604 },
+  { name: "광안리",     lat: 35.1532, lng: 129.1187 },
+  { name: "부산시민공원", lat: 35.1636, lng: 129.0611 },
+  { name: "온천천",     lat: 35.2046, lng: 129.0803 },
+  { name: "송도",       lat: 35.0765, lng: 129.0175 },
+];
+
+const MAX_SLOTS = 5;              // 카드/색상 슬롯은 5개까지 준비 (API 요구사항)
+const COLORS = ["#e74c3c", "#2980b9", "#27ae60", "#f39c12", "#8e44ad"]; // 코스별 고정 색상
+
+let map, layerGroup;
+let selectedPreset = PRESETS[0];
+
+function initMap() {
+  map = L.map("map").setView([selectedPreset.lat, selectedPreset.lng], 14);
+  // OpenStreetMap 타일 — API 키 불필요
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(map);
+  layerGroup = L.layerGroup().addTo(map);
+}
+
+function buildPresetButtons() {
+  const grid = document.getElementById("presetGrid");
+  PRESETS.forEach((p, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "preset-btn" + (i === 0 ? " active" : "");
+    btn.textContent = p.name;
+    btn.addEventListener("click", () => selectPreset(p, btn));
+    grid.appendChild(btn);
+  });
+  selectPreset(PRESETS[0], grid.children[0]);
+}
+
+function selectPreset(preset, btnEl) {
+  selectedPreset = preset;
+  document.getElementById("lat").value = preset.lat;
+  document.getElementById("lng").value = preset.lng;
+  document.querySelectorAll(".preset-btn").forEach((b) => b.classList.remove("active"));
+  if (btnEl) btnEl.classList.add("active");
+  if (map) map.setView([preset.lat, preset.lng], 14);
+}
+
+function setStatus(kind, msg) {
+  const el = document.getElementById("status");
+  el.className = kind;
+  el.textContent = msg;
+}
+
+function fmtNum(v, digits) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "N/A";
+  return Number(v).toFixed(digits ?? 2);
+}
+
+function fmtCoord(pt) {
+  if (!Array.isArray(pt) || pt.length < 2) return "N/A";
+  return `${fmtNum(pt[0], 6)}, ${fmtNum(pt[1], 6)}`;
+}
+
+function clearResults() {
+  layerGroup.clearLayers();
+  document.getElementById("cards").innerHTML = "";
+  document.getElementById("issues").innerHTML = "";
+}
+
+function addIssue(text, isWarn) {
+  const box = document.getElementById("issues");
+  const div = document.createElement("div");
+  div.className = "issue" + (isWarn ? " warn" : "");
+  div.textContent = text;
+  box.appendChild(div);
+}
+
+// ── path_data 유효성 검사 (좌표 형식 오류를 화면에서 잡아낸다) ─────────
+function validatePathData(pathData) {
+  if (!Array.isArray(pathData)) return "path_data가 배열이 아닙니다.";
+  if (pathData.length === 0) return "path_data가 빈 배열입니다.";
+  for (let i = 0; i < pathData.length; i++) {
+    const p = pathData[i];
+    if (!Array.isArray(p) || p.length < 2) return `path_data[${i}]가 [lat,lng] 형식이 아닙니다: ${JSON.stringify(p)}`;
+    const [lat, lng] = p;
+    if (typeof lat !== "number" || typeof lng !== "number" || Number.isNaN(lat) || Number.isNaN(lng)) {
+      return `path_data[${i}]에 숫자가 아닌 좌표가 있습니다: ${JSON.stringify(p)}`;
+    }
+    if (lat < -90 || lat > 90) return `path_data[${i}]의 첫 값(${lat})이 위도 범위(-90~90)를 벗어났습니다 — lat/lng가 뒤바뀌었을 가능성.`;
+    if (lng < -180 || lng > 180) return `path_data[${i}]의 두번째 값(${lng})이 경도 범위(-180~180)를 벗어났습니다.`;
+  }
+  return null; // 이상 없음
+}
+
+function drawCourse(course, idx, color) {
+  const latlngs = course.path_data.map((p) => [p[0], p[1]]); // [lat, lng] 그대로 사용 (main.py:181 확인됨)
+
+  const poly = L.polyline(latlngs, { color, weight: 4, opacity: 0.85 });
+  layerGroup.addLayer(poly);
+
+  const start = latlngs[0];
+  const end = latlngs[latlngs.length - 1];
+
+  const startIcon = L.divIcon({
+    className: "", html: `<div style="background:${color};width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 3px rgba(0,0,0,0.6);"></div>`,
+    iconSize: [14, 14], iconAnchor: [7, 7],
+  });
+  const endIcon = L.divIcon({
+    className: "", html: `<div style="background:${color};width:14px;height:14px;border:2px solid #fff;box-shadow:0 0 3px rgba(0,0,0,0.6);"></div>`,
+    iconSize: [14, 14], iconAnchor: [7, 7],
+  });
+
+  layerGroup.addLayer(L.marker(start, { icon: startIcon, title: `코스 ${idx + 1} 시작 (●)` })
+    .bindPopup(`코스 ${idx + 1} 시작점<br>${fmtCoord(start)}`));
+  layerGroup.addLayer(L.marker(end, { icon: endIcon, title: `코스 ${idx + 1} 종료 (■)` })
+    .bindPopup(`코스 ${idx + 1} 종료점<br>${fmtCoord(end)}`));
+
+  return poly;
+}
+
+function renderCard(course, idx, color, targetDistanceKm, targetDurationMin) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.style.borderLeftColor = color;
+
+  const pathErr = validatePathData(course.path_data);
+  const start = pathErr ? null : course.path_data[0];
+  const end = pathErr ? null : course.path_data[course.path_data.length - 1];
+
+  const distDiff = (course.distance != null && targetDistanceKm != null)
+    ? course.distance - targetDistanceKm : null;
+  const timeDiff = (course.estimated_duration_min != null && targetDurationMin != null)
+    ? course.estimated_duration_min - targetDurationMin : null;
+
+  const distDiffText = distDiff === null ? "N/A"
+    : `${distDiff >= 0 ? "+" : ""}${fmtNum(distDiff, 2)} km`;
+  const timeDiffText = timeDiff === null ? "N/A"
+    : `${timeDiff >= 0 ? "+" : ""}${fmtNum(timeDiff, 1)} 분`;
+
+  card.innerHTML = `
+    <h3>
+      <span><span class="legend-dot" style="background:${color}"></span>코스 ${idx + 1}</span>
+      <span class="badge ${course.source || ""}">${course.source || "?"}</span>
+    </h3>
+    <div class="row"><span>source_course_id</span><span>${course.source_course_id ?? "null (AI 생성)"}</span></div>
+    <div class="row"><span>실제 거리</span><span>${fmtNum(course.distance, 2)} km <span class="${Math.abs(distDiff ?? 0) <= 0.4 ? "ok-diff" : "warn"}">(목표대비 ${distDiffText})</span></span></div>
+    <div class="row"><span>예상 시간</span><span>${fmtNum(course.estimated_duration_min, 1)} 분 <span class="${Math.abs(timeDiff ?? 0) <= 5 ? "ok-diff" : "warn"}">(목표대비 ${timeDiffText})</span></span></div>
+    <div class="row"><span>거리 오차</span><span>${course.distance_error_m ?? "N/A"} m</span></div>
+    <div class="row"><span>거리 정확도</span><span>${course.distance_accuracy ?? "N/A"}</span></div>
+    <div class="row"><span>좌표 개수</span><span>${Array.isArray(course.path_data) ? course.path_data.length : "N/A"}</span></div>
+    <div class="row"><span>시작 좌표</span><span>${start ? fmtCoord(start) : "❌ 오류"}</span></div>
+    <div class="row"><span>종료 좌표</span><span>${end ? fmtCoord(end) : "❌ 오류"}</span></div>
+    ${pathErr ? `<div class="warn">⚠ ${pathErr}</div>` : ""}
+  `;
+  document.getElementById("cards").appendChild(card);
+}
+
+function showDebug(url, reqBody, res, rawText) {
+  document.getElementById("dbgUrl").textContent = url;
+  document.getElementById("dbgReqBody").textContent = JSON.stringify(reqBody, null, 2);
+  document.getElementById("dbgStatus").textContent = res ? `${res.status} ${res.statusText}` : "(응답 없음 — 네트워크/CORS 오류로 요청 자체가 실패)";
+  let headerStr = "-";
+  if (res) {
+    const ct = res.headers.get("content-type");
+    headerStr = `content-type: ${ct}`;
+  }
+  document.getElementById("dbgHeaders").textContent = headerStr;
+  let pretty = rawText;
+  try { pretty = JSON.stringify(JSON.parse(rawText), null, 2); } catch (e) { /* JSON 아니면 원문 그대로 */ }
+  document.getElementById("dbgRaw").textContent = pretty || "(본문 없음)";
+}
+
+async function callApi() {
+  const btn = document.getElementById("callBtn");
+  btn.disabled = true;
+  clearResults();
+  document.getElementById("summary").textContent = "호출 중...";
+  setStatus("info", "API 호출 중...");
+
+  const base = document.getElementById("baseUrl").value.trim().replace(/\/+$/, "");
+  const url = `${base}/api/v1/courses/recommend`;
+  const themeVal = document.getElementById("theme").value;
+  const distanceKm = parseFloat(document.getElementById("distanceKm").value);
+  const durationMin = parseFloat(document.getElementById("durationMin").value);
+
+  const reqBody = {
+    center: { lat: selectedPreset.lat, lng: selectedPreset.lng },
+    distance_km: distanceKm,
+    duration_min: durationMin,
+  };
+  if (themeVal) reqBody.theme = themeVal;
+
+  let res = null;
+  let rawText = "";
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reqBody),
+    });
+    rawText = await res.text();
+  } catch (networkErr) {
+    // fetch 자체가 throw 하는 경우: 대부분 CORS 차단, 서버 다운, 잘못된 주소
+    showDebug(url, reqBody, null, "");
+    setStatus("err",
+      `❌ 네트워크/CORS 오류로 요청이 실패했습니다.\n\n` +
+      `가능한 원인:\n` +
+      `  1) FastAPI 서버가 꺼져 있거나 주소가 틀림 (${url})\n` +
+      `  2) 서버에 CORS 미들웨어가 없음 (main.py에 CORSMiddleware 추가 필요)\n` +
+      `  3) https 페이지에서 http API를 호출(혼합 콘텐츠 차단)\n\n` +
+      `브라우저 오류: ${networkErr.message}`
+    );
+    document.getElementById("summary").textContent = "호출 실패 (네트워크/CORS)";
+    btn.disabled = false;
+    return;
+  }
+
+  let json = null;
+  let parseErr = null;
+  try {
+    json = JSON.parse(rawText);
+  } catch (e) {
+    parseErr = e;
+  }
+  showDebug(url, reqBody, res, rawText);
+
+  if (!res.ok) {
+    const msg = json ? (json.message || JSON.stringify(json)) : rawText;
+    setStatus("err", `❌ HTTP ${res.status} ${res.statusText}\n${msg}`);
+    document.getElementById("summary").textContent = `호출 실패 — HTTP ${res.status}`;
+    btn.disabled = false;
+    return;
+  }
+
+  if (parseErr) {
+    setStatus("err", `❌ 응답이 올바른 JSON이 아닙니다: ${parseErr.message}`);
+    document.getElementById("summary").textContent = "응답 파싱 실패";
+    btn.disabled = false;
+    return;
+  }
+
+  // ── 정상 응답 처리 ──
+  const courses = Array.isArray(json.courses) ? json.courses : null;
+
+  if (courses === null) {
+    setStatus("err", "❌ 응답에 courses 배열이 없습니다. 스키마가 예상과 다릅니다.");
+    document.getElementById("summary").textContent = "courses 필드 누락";
+    btn.disabled = false;
+    return;
+  }
+
+  if (json.fallback_reason) {
+    addIssue(`fallback_reason: ${json.fallback_reason}`, true);
+  }
+  if (Array.isArray(json.warnings) && json.warnings.length > 0) {
+    json.warnings.forEach((w) => addIssue(`warning: ${w}`, true));
+  }
+
+  if (courses.length === 0) {
+    setStatus("ok", "요청은 성공했지만 추천 코스가 0개입니다 (fallback_reason 참고).");
+    document.getElementById("summary").innerHTML =
+      `<b>${selectedPreset.name}</b> — 목표 ${distanceKm}km/${durationMin}분 — <b style="color:#c0392b">0개 반환</b>`;
+    btn.disabled = false;
+    return;
+  }
+
+  const shown = courses.slice(0, MAX_SLOTS);
+  if (courses.length > MAX_SLOTS) {
+    addIssue(`API가 ${courses.length}개를 반환했지만 화면에는 상위 ${MAX_SLOTS}개만 표시합니다.`, true);
+  }
+
+  const bounds = [];
+  let pathIssueCount = 0;
+
+  shown.forEach((course, i) => {
+    const color = COLORS[i % COLORS.length];
+
+    if (!course.path_data) {
+      addIssue(`코스 ${i + 1}: path_data 필드 자체가 없습니다. (source=${course.source}, id=${course.course_id})`, false);
+      pathIssueCount++;
+      renderCard(course, i, color, distanceKm, durationMin);
+      return;
+    }
+    const err = validatePathData(course.path_data);
+    if (err) {
+      addIssue(`코스 ${i + 1}: ${err}`, false);
+      pathIssueCount++;
+      renderCard(course, i, color, distanceKm, durationMin);
+      return;
+    }
+
+    drawCourse(course, i, color);
+    renderCard(course, i, color, distanceKm, durationMin);
+    course.path_data.forEach((p) => bounds.push([p[0], p[1]]));
+  });
+
+  if (bounds.length > 0) {
+    map.fitBounds(bounds, { padding: [30, 30] });
+  }
+
+  // 사실 그대로 "N개 반환" 표기 — 5개 미만이어도 오류로 취급하지 않는다
+  document.getElementById("summary").innerHTML =
+    `<b>${selectedPreset.name}</b> (${selectedPreset.lat}, ${selectedPreset.lng}) — ` +
+    `목표 ${distanceKm}km / ${durationMin}분${themeVal ? " / 테마: " + themeVal : ""} — ` +
+    `<b>${courses.length}개 반환</b>` +
+    (pathIssueCount > 0 ? ` <span style="color:#c0392b">(경로 데이터 이상 ${pathIssueCount}건)</span>` : "");
+
+  setStatus("ok", `✅ 정상 응답 (HTTP ${res.status}). 코스 ${courses.length}개 수신, 지도에 ${shown.length - pathIssueCount}개 표시.`);
+  btn.disabled = false;
+}
+
+document.getElementById("callBtn").addEventListener("click", callApi);
+
+initMap();
+buildPresetButtons();
+</script>
+</body>
+</html>
