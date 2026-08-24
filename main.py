@@ -7,9 +7,11 @@ docs/openapi-runpolio-ai.yaml 계약을 그대로 구현한다. 기존 로직(sr
 실행:
     uvicorn main:app --host 0.0.0.0 --port 8000
 
-CORS 미들웨어는 넣지 않았다 — 이 서버는 브라우저가 아니라 백엔드(Spring)가
-서버 대 서버로 호출하는 내부용이라 필요 없다. 브라우저에서 직접 호출해야 하면
-그때 추가할 것.
+CORS: 배포 전 시각 검증용 HTML(test_recommend_map.html)이 브라우저에서 직접
+fetch 하므로 CORSMiddleware를 열어 둔다. allow_origins="*" + allow_credentials=False
+조합만 사용한다(자격증명 없는 GET/POST 테스트용). 운영 배포 시 Spring 백엔드에서만
+호출한다면 이 미들웨어를 제거하거나 origin을 좁혀도 된다 — 추천 로직과는 무관한
+전송 계층 설정이다.
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 load_dotenv()
@@ -36,6 +39,38 @@ app = FastAPI(
     title="Runpolio AI API",
     version="2.1.0",
     description="docs/openapi-runpolio-ai.yaml 참고. 계약 상세는 그쪽이 정본이다.",
+)
+
+from pathlib import Path
+import yaml
+
+_OPENAPI_PATH = (
+    Path(__file__).resolve().parent
+    / "docs"
+    / "openapi-runpolio-ai.yaml"
+)
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = yaml.safe_load(_OPENAPI_PATH.read_text(encoding="utf-8"))
+
+    # YAML 원본 파일은 유지하고,
+    # Swagger UI의 Try it out만 현재 접속 서버로 보내도록 설정
+    schema["servers"] = [{"url": "/"}]
+
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
 )
 
 # 임베딩 모델 제공자가 확정되기 전까지의 임시 대용품.
